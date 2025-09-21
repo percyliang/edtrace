@@ -16,7 +16,7 @@ function TraceViewer() {
   const targetStepIndex = parseInt(urlParams.get('step')) || null;  // Step index to highlight
   const rawMode = urlParams.get('raw');
   const animateMode = urlParams.get('animate');
-  const showEnv = urlParams.get('showEnv');
+  const hideEnv = urlParams.get('hideEnv');
   const showNotes = urlParams.get('showNotes');
   const navigate = useNavigate();
 
@@ -36,7 +36,8 @@ function TraceViewer() {
 
     const fetchData = async () => {
       try {
-        const url = tracePath;
+        // tracePath could be a bare 'welcome', expand to 'var/traces/welcome.json'
+        const url = tracePath.endsWith('.json') ? tracePath : `var/traces/${tracePath}.json`;
         const response = await axios.get(url);
         // If we got back a string, that means we weren't able to parse it
         if (typeof response.data === 'string') {
@@ -83,7 +84,7 @@ function TraceViewer() {
       } else if (event.key === 'A') {
         toggleAnimateMode({animateMode, navigate});
       } else if (event.key === 'E') {
-        toggleShowEnv({showEnv, navigate});
+        toggleHideEnv({hideEnv, navigate});
       } else if (event.key === 'N') {
         toggleShowNotes({showNotes, navigate});
       } else if (event.key === 'g') {
@@ -98,7 +99,7 @@ function TraceViewer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [trace, targetStepIndex, targetLineNumber, rawMode, animateMode, showEnv, navigate]);
+  }, [trace, targetStepIndex, targetLineNumber, rawMode, animateMode, hideEnv, navigate]);
 
   // Update drag handlers
   const handleMouseDown = (e) => {
@@ -182,8 +183,8 @@ function TraceViewer() {
     }
   }
 
-  const renderedEnv = currentStepIndex !== null && showEnv ? renderEnv({trace, currentStepIndex}) : null;
-  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, showEnv, showNotes, animateMode, navigate});
+  const renderedEnv = currentStepIndex !== null && !hideEnv ? renderEnv({trace, currentStepIndex}) : null;
+  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showNotes, animateMode, navigate});
 
   return (
     <div
@@ -324,9 +325,9 @@ function toggleAnimateMode({animateMode, navigate}) {
   updateUrlParams({ animate: newAnimateMode ? "1" : null }, navigate);
 }
 
-function toggleShowEnv({showEnv, navigate}) {
-  const newShowEnv = !showEnv;
-  updateUrlParams({ showEnv: newShowEnv ? "1" : null }, navigate);
+function toggleHideEnv({hideEnv, navigate}) {
+  const newHideEnv = !hideEnv;
+  updateUrlParams({ hideEnv: newHideEnv ? "1" : null }, navigate);
 }
 
 function toggleShowNotes({showNotes, navigate}) {
@@ -335,7 +336,7 @@ function toggleShowNotes({showNotes, navigate}) {
 }
 
 function gotoTrace({tracePath, navigate}) {
-  const newTracePath = prompt("Enter the path to the trace file", tracePath);
+  const newTracePath = prompt("Enter trace name or path:", tracePath);
   if (newTracePath) {
     updateUrlParams({ trace: newTracePath, source: null, line: null, step: null }, navigate);
   }
@@ -568,7 +569,7 @@ function makeProgressBar(currentStepIndex, totalSteps) {
   );
 }
 
-function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, showEnv, showNotes, animateMode, navigate}) {
+function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showNotes, animateMode, navigate}) {
   const linesToShow = computeLinesToShow({trace, currentStepIndex});
 
   // Build a map of line number to renderings
@@ -661,7 +662,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
 
   const animateIcon = animateMode ? "⛅️" : "☀️";
   const rawIcon = rawMode ? "⚙️" : "⚪️";
-  const envIcon = showEnv ? "🅴" : "⬛";
+  const envIcon = hideEnv ? "⬛" : "🅴";
   const notesIcon = showNotes ? "🛈" : "⬛";
   const stepBackwardIcon = "⬅️";
   const stepForwardIcon = "➡️";
@@ -672,7 +673,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
     <span className="icon-buttons">
       <button title="Toggle animation (whether to gradually show content when stepping through) [shortcut: A]" onClick={() => toggleAnimateMode({animateMode, navigate})}>{animateIcon}</button>
       <button title="Toggle raw mode (whether to show the underlying code) [shortcut: R]" onClick={() => toggleRawMode({rawMode, navigate})}>{rawIcon}</button>
-      <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleShowEnv({showEnv, navigate})}>{envIcon}</button>
+      <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleHideEnv({hideEnv, navigate})}>{envIcon}</button>
       <button title="Toggle notes display (whether to show notes) [shortcut: N]" onClick={() => toggleShowNotes({showNotes, navigate})}>{notesIcon}</button>
       <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({currentStepIndex, navigate})}>{stepBackwardIcon}</button>
       <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, navigate})}>{stepForwardIcon}</button>
@@ -921,7 +922,7 @@ function TracePathPrompt({ navigate }) {
         <div>
           <input
             type="text"
-            placeholder="Enter path to trace JSON file (e.g., var/traces/linear_regression.json)"
+            placeholder="Enter trace name or path (e.g., tensors or var/traces/tensors.json)"
             value={tracePath}
             onChange={(e) => setTracePath(e.target.value)}
             className="trace-path-input"
@@ -932,9 +933,6 @@ function TracePathPrompt({ navigate }) {
           Load Trace
         </button>
       </form>
-      <p className="trace-path-help">
-        Or use URL parameter: ?trace=path/to/trace.json
-      </p>
     </div>
   );
 }
