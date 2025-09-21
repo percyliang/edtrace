@@ -1,0 +1,13 @@
+[project]
+name = "pyduck"
+version = "0.1.0"
+description = "Library for tracing through Python programs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "sympy",
+    "numpy",
+    "requests",
+    "altair>=5.5.0",
+]
