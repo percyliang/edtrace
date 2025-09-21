@@ -4,7 +4,7 @@ import TraceViewer from './TraceViewer';
 
 function App() {
   return (
-    <BrowserRouter basename={process.env.NODE_ENV === 'production' ? process.env.EDTRACE_BASE_DIR : '/'}>
+    <BrowserRouter basename={process.env.NODE_ENV === 'production' ? import.meta.env.VITE_EDTRACE_BASE_DIR : '/'}>
       <Routes>
         <Route path="/" element={<TraceViewer />} />
       </Routes>

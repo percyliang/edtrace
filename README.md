@@ -44,9 +44,9 @@ and go to [http://localhost:5173](http://localhost:5173) and type in `var/traces
 For production:
 ```sh
 mkdir dist
-(cd dist && ln -s ../var && ln -s ../images)  # Symlink so we don't have to make two copies
-export EDTRACE_BASE_DIR=/`basename $PWD`      # Assume this will be hosted at ???.github.io/$EDTRACE_BASE_DIR
-export EDTRACE_DIST_DIR=$PWD                  # Absolute path
+(cd dist && ln -s ../var && ln -s ../images)    # Symlink so we don't have to make two copies
+export VITE_EDTRACE_BASE_DIR=/`basename $PWD`   # Assume this will be hosted at ???.github.io/$EDTRACE_BASE_DIR
+export VITE_EDTRACE_DIST_DIR=$PWD               # Absolute path
 
 npm --prefix=edtrace/frontend run build
 ```
