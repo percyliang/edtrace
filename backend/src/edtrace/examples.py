@@ -3,7 +3,7 @@ import sympy
 import torch
 from datetime import datetime
 from dataclasses import dataclass
-from execute_util import text, image, link, system_text
+from .execute_util import text, image, link, system_text
 
 
 def main():

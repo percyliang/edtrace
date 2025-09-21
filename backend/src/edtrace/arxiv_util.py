@@ -1,7 +1,7 @@
 import re
 import xml.etree.ElementTree as ET
-from file_util import cached
-from reference import Reference
+from .file_util import cached
+from .reference import Reference
 
 
 def canonicalize(text: str):

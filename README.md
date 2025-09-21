@@ -21,18 +21,34 @@ def main():
     x += 1  # @inspect x
 ```
 
-2. Execute the program and record the trace (saved in `var/traces/hello.json`):
+2. Execute the program and record the trace:
 
 ```sh
 uv add --upgrade edtrace
 python -m edtrace.execute -m hello
 ```
+The results are saved in `var/traces/hello.json`.
 
 3. View the trace in a web browser (this part is a bit clunky):
 
 ```sh
 git clone https://github.com/percyliang/edtrace
-cd edtrace/frontend
-npm run dev    # For development
-npm run build  # For production
 ```
+
+For development:
+```sh
+npm --prefix=edtrace/frontend run dev
+```
+and go to [http://localhost:5173](http://localhost:5173) and type in `var/traces/hello.json`.
+
+For production:
+```sh
+mkdir dist
+(cd dist && ln -s ../var && ln -s ../images)  # Symlink so we don't have to make two copies
+export EDTRACE_BASE_DIR=/autumn2025-lectures/  # Note: replace with whatever this site will be hosted
+export EDTRACE_DIST_DIR=$PWD
+
+npm --prefix=edtrace/frontend run build
+```
+and this writes to `.`.  Git push `index.html` and `assets` so it will show up publicly
+(e.g., on a github.io page).

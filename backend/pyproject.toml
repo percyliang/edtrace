@@ -1,7 +1,7 @@
 [project]
-name = "pyduck"
-version = "0.1.0"
-description = "Library for tracing through Python programs"
+name = "edtrace"
+version = "0.1.5"
+description = "Library for tracing through Python programs for educational presentation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

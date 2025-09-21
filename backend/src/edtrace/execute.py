@@ -1,4 +1,3 @@
-import io
 import argparse
 import math
 import importlib
@@ -9,11 +8,10 @@ import traceback
 import numpy as np
 import torch
 import sympy
-from dataclasses import dataclass, asdict, field, is_dataclass, fields
 import os
-import re
-from execute_util import Rendering, pop_renderings
-from file_util import ensure_directory_exists, relativize
+from dataclasses import dataclass, asdict, field, is_dataclass, fields
+from .execute_util import Rendering, pop_renderings
+from .file_util import relativize
 
 
 @dataclass(frozen=True)
@@ -214,12 +212,10 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
         """Return the last element of `stack`, but skip over items where local_trace_func is active."""
         stack = []
         # stack looks like this:
-        #   <module> execute [good stuff to return] local_trace_func trace_func get_stack
+        #   _run_module_as_main _run_code <module> execute [good stuff to return] local_trace_func trace_func get_stack
         items = traceback.extract_stack()
-        assert items[0].name == "<module>"
-        assert items[1].name == "execute"
-        for item in traceback.extract_stack()[2:]:
-            if item.name in ("trace_func", "local_trace_func", "get_stack"):
+        for item in traceback.extract_stack():
+            if item.name in ("_run_module_as_main", "_run_code", "<module>", "execute", "local_trace_func", "trace_func", "get_stack"):
                 continue
             stack.append(StackElement(
                 path=relativize(item.filename),
@@ -228,7 +224,7 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
                 code=item.line,
             ))
         return stack
-    
+
     def trace_func(frame, event, arg):
         """
         trace_func and local_trace_func are called on various lines of code when executed.
@@ -363,7 +359,7 @@ if __name__ == "__main__":
     parser.add_argument("-I", "--inspect-all-variables", help="Inspect all variables (default: only inspect variables mentioned in @inspect comments)", action="store_true")
     args = parser.parse_args()
 
-    ensure_directory_exists(args.output_path)
+    os.makedirs(args.output_path, exist_ok=True)
 
     for module in args.module:
         module = module.replace(".py", "")  # Just in case

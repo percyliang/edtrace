@@ -6,12 +6,6 @@ from io import BytesIO
 import requests
 
 
-def ensure_directory_exists(path: str):
-    """Create directory at `path` if it doesn't already exist."""
-    if not os.path.exists(path):
-        os.mkdir(path)
-
-
 def download_file(url: str, filename: str):
     """Download `url` and save the contents to `filename`.  Skip if `filename` already exists."""
     if not os.path.exists(filename):
@@ -29,7 +23,7 @@ def cached(url: str, prefix: str) -> str:
     name = re.sub(r"[^\w_-]+", "_", url)
     url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()
 
-    ensure_directory_exists("var/files")
+    os.makedirs("var/files", exist_ok=True)
     path = os.path.join("var/files", prefix + "-" + url_hash + "-" + name)
     download_file(url, path)
     return path

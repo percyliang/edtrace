@@ -7,10 +7,10 @@ import os
 import inspect
 import re
 import subprocess
-from file_util import cached, relativize
 from dataclasses import dataclass
-from arxiv_util import is_arxiv_link, arxiv_reference
-from reference import Reference
+from .file_util import cached, relativize
+from .arxiv_util import is_arxiv_link, arxiv_reference
+from .reference import Reference
 
 @dataclass(frozen=True)
 class CodeLocation:
