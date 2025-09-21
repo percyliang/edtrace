@@ -45,8 +45,8 @@ For production:
 ```sh
 mkdir dist
 (cd dist && ln -s ../var && ln -s ../images)  # Symlink so we don't have to make two copies
-export EDTRACE_BASE_DIR=/autumn2025-lectures/  # Note: replace with whatever this site will be hosted
-export EDTRACE_DIST_DIR=$PWD
+export EDTRACE_BASE_DIR=/`basename $PWD`      # Assume this will be hosted at ???.github.io/$EDTRACE_BASE_DIR
+export EDTRACE_DIST_DIR=$PWD                  # Absolute path
 
 npm --prefix=edtrace/frontend run build
 ```
