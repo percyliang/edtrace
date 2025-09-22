@@ -174,7 +174,7 @@ def to_serializable_value(value: any) -> Value:
         return Value(type=value_type, contents=str(value))
 
     # Recursive types
-    if isinstance(value, list):
+    if isinstance(value, (tuple, list)):
         return Value(type=value_type, contents=[to_serializable_value(item) for item in value])
     if isinstance(value, dict):
         return Value(type=value_type, contents={to_primitive(k): to_serializable_value(v) for k, v in value.items()})
