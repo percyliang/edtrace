@@ -432,6 +432,7 @@ function isInteger(value) {
 }
 
 function renderValue(value) {
+  console.log('FFFFFF', value);
   if (value.type === "NoneType") {
     return "None";
   }

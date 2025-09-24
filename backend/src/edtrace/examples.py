@@ -93,6 +93,12 @@ def inspect_values():
         b: list[int]
     x = MyDataclass(a=1, b=[2, 3])  # @inspect x x.a x.b
 
+    # Custom class
+    class Foo:
+        def asdict(self):
+            return {"a": 5}
+    x = Foo()  # @inspect x
+
     # Datetimes
     x = datetime.now()  # @inspect x
 

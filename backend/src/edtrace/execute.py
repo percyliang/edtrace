@@ -186,7 +186,7 @@ def to_serializable_value(value: any) -> Value:
 
     # If the class has a designated asdict method, use it
     if hasattr(value, "asdict"):
-        return Value(type=value_type, contents=value.asdict())
+        return Value(type=value_type, contents=to_serializable_value(value.asdict()).contents)
 
     # Force contents to be a string to avoid serialization errors
     return Value(type=value_type, contents=str(value))
