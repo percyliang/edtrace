@@ -109,7 +109,7 @@ def parse_directives(line: str) -> list[Directive]:
     return directives
 
 
-def get_inspect_variables(directives: list[Directive]) -> list[str]:
+def get_inspect_expressions(directives: list[Directive]) -> list[str]:
     """
     If code contains "@inspect <variable>" (as a comment), return those variables.
     Example code:
@@ -123,7 +123,7 @@ def get_inspect_variables(directives: list[Directive]) -> list[str]:
     return variables
 
 
-def get_clear_variables(directives: list[Directive]) -> list[str]:
+def get_clear_expressions(directives: list[Directive]) -> list[str]:
     """
     If code contains "@clear <variable>" (as a comment), return the variables to clear.
     Example code:
@@ -184,8 +184,12 @@ def to_serializable_value(value: any) -> Value:
             for field in fields(value)
         })
 
+    # If the class has a designated asdict method, use it
+    if hasattr(value, "asdict"):
+        return Value(type=value_type, contents=value.asdict())
+
     # Force contents to be a string to avoid serialization errors
-    return Value(type=type(value).__name__, contents=str(value))
+    return Value(type=value_type, contents=str(value))
 
 
 def get_type_str(value: any) -> str:
@@ -301,20 +305,30 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
             # Update the environment with the actual values
             locals = frame.f_locals
             if inspect_all_variables:
-                vars = locals.keys()
+                exprs = locals.keys()
             else:
-                vars = get_inspect_variables(directives)
-            for var in vars:
+                exprs = get_inspect_expressions(directives)
+            for expr in exprs:
+                if "." in expr:  # e.g., node.name
+                    var, attr = expr.split(".", 1)
+                else:
+                    var = expr
+                    attr = None
                 if var in locals:
-                    close_step.env[var] = to_serializable_value(locals[var])
+                    # Follow the attribute chain
+                    value = locals[var]
+                    if attr:
+                        for attr in attr.split("."):
+                            value = getattr(value, attr)
+                    close_step.env[expr] = to_serializable_value(value)
                 else:
                     print(f"WARNING: variable {var} not found in locals")
-                print(f"    env: {var} = {close_step.env.get(var)}")
+                print(f"    env: {expr} = {close_step.env.get(expr)}")
         
-            clear_vars = get_clear_variables(directives)
-            for var in clear_vars:
-                if var in locals:
-                    close_step.env[var] = None
+            clear_exprs = get_clear_expressions(directives)
+            for expr in clear_exprs:
+                if expr in locals:
+                    close_step.env[expr] = None
 
             # Capture the renderings of the last line
             close_step.renderings = pop_renderings()
