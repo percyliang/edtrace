@@ -259,7 +259,7 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
         item = stack[-1]
 
         # Don't step into comprehensions since they're redundant and just stay on the line
-        if item.function_name == "<listcomp>":
+        if item.function_name in ("<listcomp>", "<lambda>"):
             return trace_func
 
         # Handle @stepover (don't recurse)

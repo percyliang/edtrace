@@ -520,9 +520,9 @@ function renderList(contents) {
   if (contents.length === 0) {
     return "[]";
   }
-  return <table className="matrix"><tbody>{
-    contents.map((v, i) => <tr key={i}><td>{renderValue(v)}</td></tr>)
-  }</tbody></table>;
+  return <table className="matrix"><tbody><tr>{
+    contents.map((v, i) => <td key={i}>{renderValue(v)}</td>)
+  }</tr></tbody></table>;
 }
 
 function renderDict(contents) {

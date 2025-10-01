@@ -170,6 +170,7 @@ button {
 
 .env-panel {
   position: fixed;
+  overflow-x: auto;
   overflow-y: auto;
   z-index: 1000;
   max-height: 90vh;
