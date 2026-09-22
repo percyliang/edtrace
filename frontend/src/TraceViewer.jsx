@@ -699,7 +699,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
   return (
     <div>
       {header}
-      <div>
+      <div className="code-lines">
         {renderedLines}
       </div>
     </div>

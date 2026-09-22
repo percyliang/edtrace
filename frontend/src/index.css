@@ -86,6 +86,16 @@ button {
   display: inline-block;
 }
 
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 0;
+  padding: 0;
+  line-height: inherit;
+  display: inline-block;
+}
+
 .markdown ul {
   margin: 0;
   padding: 0;
@@ -160,6 +170,12 @@ button {
   flex: 1;
   position: relative;
   min-width: 1000px;
+}
+
+/* Scrolls horizontally on its own, kept separate from .lines-panel so that
+   .header's position: sticky sticks to the page viewport instead of being
+   scoped to a scroll container that never actually scrolls vertically. */
+.code-lines {
   overflow-x: auto;
 }
 
