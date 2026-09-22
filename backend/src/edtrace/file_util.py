@@ -4,6 +4,7 @@ import hashlib
 import shutil
 import time
 from io import BytesIO
+from urllib.parse import urlparse
 import requests
 
 
@@ -34,9 +35,13 @@ def cached(url: str, prefix: str) -> str:
     """Download `url` if needed and return the location of the cached file."""
     name = re.sub(r"[^\w_-]+", "_", url)
     url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()
+    # Preserve the original extension (e.g. ".svg") so static file servers can
+    # infer the correct Content-Type; without it, browsers refuse to render
+    # SVGs served via <img> even though the content is valid.
+    ext = os.path.splitext(urlparse(url).path)[1]
 
     os.makedirs("var/files", exist_ok=True)
-    path = os.path.join("var/files", prefix + "-" + url_hash + "-" + name)
+    path = os.path.join("var/files", prefix + "-" + url_hash + "-" + name + ext)
     download_file(url, path)
     return path
 
