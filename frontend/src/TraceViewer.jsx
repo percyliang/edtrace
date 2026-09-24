@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import hljs from 'highlight.js';
@@ -18,6 +18,7 @@ function TraceViewer() {
   const animateMode = urlParams.get('animate');
   const hideEnv = urlParams.get('hideEnv');
   const showNotes = urlParams.get('showNotes');
+  const showLineEnv = urlParams.get('showLineEnv');
   const navigate = useNavigate();
 
   const [error, setError] = useState(null);
@@ -85,6 +86,8 @@ function TraceViewer() {
         toggleAnimateMode({animateMode, navigate});
       } else if (event.key === 'E') {
         toggleHideEnv({hideEnv, navigate});
+      } else if (event.key === 'e') {
+        toggleShowLineEnv({showLineEnv, navigate});
       } else if (event.key === 'N') {
         toggleShowNotes({showNotes, navigate});
       } else if (event.key === 'g') {
@@ -99,7 +102,7 @@ function TraceViewer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [trace, targetStepIndex, targetLineNumber, rawMode, animateMode, hideEnv, navigate]);
+  }, [trace, targetStepIndex, targetLineNumber, rawMode, animateMode, hideEnv, showLineEnv, navigate]);
 
   // Update drag handlers
   const handleMouseDown = (e) => {
@@ -184,7 +187,7 @@ function TraceViewer() {
   }
 
   const renderedEnv = currentStepIndex !== null && !hideEnv ? renderEnv({trace, currentStepIndex}) : null;
-  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showNotes, animateMode, navigate});
+  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate});
 
   return (
     <div
@@ -328,6 +331,11 @@ function toggleAnimateMode({animateMode, navigate}) {
 function toggleHideEnv({hideEnv, navigate}) {
   const newHideEnv = !hideEnv;
   updateUrlParams({ hideEnv: newHideEnv ? "1" : null }, navigate);
+}
+
+function toggleShowLineEnv({showLineEnv, navigate}) {
+  const newShowLineEnv = !showLineEnv;
+  updateUrlParams({ showLineEnv: newShowLineEnv ? "1" : null }, navigate);
 }
 
 function toggleShowNotes({showNotes, navigate}) {
@@ -519,11 +527,20 @@ function renderTensor(shape, contents) {
   return JSON.stringify(contents, null, 2);
 }
 
+/**
+ * Return whether value renders as a boxed structure (list, dict, tensor) rather than a scalar.
+ */
+function isStructured(value) {
+  return value.contents !== null && typeof value.contents === "object";
+}
+
 function renderList(contents) {
   if (contents.length === 0) {
     return "[]";
   }
-  return <table className="matrix"><tbody><tr>{
+  // If the elements are already boxed, don't box them again
+  const className = contents.some(isStructured) ? "structure-list" : "matrix";
+  return <table className={className}><tbody><tr>{
     contents.map((v, i) => <td key={i}>{renderValue(v)}</td>)
   }</tr></tbody></table>;
 }
@@ -572,13 +589,24 @@ function makeProgressBar(currentStepIndex, totalSteps) {
   );
 }
 
-function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showNotes, animateMode, navigate}) {
+function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate}) {
   const linesToShow = computeLinesToShow({trace, currentStepIndex});
 
   // Build a map of line number to renderings
   const lineNumberToRenderings = [];
   for (const step of trace.steps) {
     lineNumberToRenderings[getLast(step.stack).line_number] = step.renderings;
+  }
+
+  // For each line in this file, the inspected values from its most recent execution up to the current step
+  // (if animating) or from its last execution in the whole trace (if not)
+  const lineNumberToEnv = {};
+  const lastStepIndex = animateMode ? currentStepIndex : trace.steps.length - 1;
+  for (let stepIndex = 0; stepIndex <= lastStepIndex; stepIndex++) {
+    const item = getLast(trace.steps[stepIndex].stack);
+    if (item.path === currentPath && Object.keys(trace.steps[stepIndex].env).length > 0) {
+      lineNumberToEnv[item.line_number] = trace.steps[stepIndex].env;
+    }
   }
 
   // Get the file contents that we're showing
@@ -659,6 +687,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
       <div key={index} className={lineClass.join(" ")} ref={isCurrentLine ? scrollIntoViewIfNeeded : null}>
         {lineNumberSpan}
         {renderedItemsSpan}
+        {showLineEnv && renderLineEnv(lineNumberToEnv[lineNumber])}
       </div>
     );
   });
@@ -666,6 +695,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
   const animateIcon = animateMode ? "⛅️" : "☀️";
   const rawIcon = rawMode ? "⚙️" : "⚪️";
   const envIcon = hideEnv ? "⬛" : "🅴";
+  const showLineEnvIcon = showLineEnv ? "🔎" : "⬛";
   const notesIcon = showNotes ? "🛈" : "⬛";
   const stepBackwardIcon = "⬅️";
   const stepForwardIcon = "➡️";
@@ -677,6 +707,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
       <button title="Toggle animation (whether to gradually show content when stepping through) [shortcut: A]" onClick={() => toggleAnimateMode({animateMode, navigate})}>{animateIcon}</button>
       <button title="Toggle raw mode (whether to show the underlying code) [shortcut: R]" onClick={() => toggleRawMode({rawMode, navigate})}>{rawIcon}</button>
       <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleHideEnv({hideEnv, navigate})}>{envIcon}</button>
+      <button title="Toggle inline variable values under each @inspect line [shortcut: e]" onClick={() => toggleShowLineEnv({showLineEnv, navigate})}>{showLineEnvIcon}</button>
       <button title="Toggle notes display (whether to show notes) [shortcut: N]" onClick={() => toggleShowNotes({showNotes, navigate})}>{notesIcon}</button>
       <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({currentStepIndex, navigate})}>{stepBackwardIcon}</button>
       <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, navigate})}>{stepForwardIcon}</button>
@@ -703,6 +734,32 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
         {renderedLines}
       </div>
     </div>
+  );
+}
+
+/**
+ * Render a block at the end of a line showing the values of the variables inspected on that line.
+ */
+function renderLineEnv(env) {
+  if (!env) {
+    return null;
+  }
+  const entries = Object.entries(env).filter(([, value]) => value !== null);
+  if (entries.length === 0) {
+    return null;
+  }
+  return (
+    <span className="line-env">
+      <table><tbody>{
+        entries.map(([key, value]) => (
+          <tr key={key}>
+            <td className="code-container key">{key}</td>
+            <td className="code-container">=</td>
+            <td className="code-container" title={renderTitle(value)}>{renderValue(value)}</td>
+          </tr>
+        ))
+      }</tbody></table>
+    </span>
   );
 }
 
@@ -771,10 +828,12 @@ function scrollIntoViewIfNeeded(elem) {
 }
 
 function MarkdownRenderer({ content, style }) {
-  const [renderedContent, setRenderedContent] = useState("");
+  const ref = useRef(null);
 
-  // Render and set `renderedContent`
-  useEffect(() => {
+  // Memoize the object passed to dangerouslySetInnerHTML: React 19 compares it by
+  // identity, so a new object on every render would reset innerHTML and wipe out
+  // the MathJax typesetting whenever we step.
+  const html = useMemo(() => {
     // Preserve the trailing whitespace
     const trailingWhitespace = content.endsWith(" ") ? "&nbsp;" : "";
 
@@ -786,19 +845,20 @@ function MarkdownRenderer({ content, style }) {
     markdown = markdown.replace(/^<p>/g, '').replace(/<\/p>$/g, '');
 
     // Add the trailing whitespace back
-    markdown = markdown + trailingWhitespace;
-    setRenderedContent(markdown);
-  }, [content]);  // Only re-run if content changes
+    return { __html: markdown + trailingWhitespace };
+  }, [content]);
 
-  // Trigger MathJax to render
-  // TODO: this flickers every time we rerender (step)
+  // Typeset the math in this element whenever the content changes.
+  // (If MathJax is still loading, its startup pass will typeset the page.)
   useEffect(() => {
-    if (renderedContent && window.MathJax) {
-      window.MathJax.typeset();
+    const elem = ref.current;
+    if (elem && window.MathJax?.typesetPromise) {
+      window.MathJax.typesetClear([elem]);
+      window.MathJax.typesetPromise([elem]).catch((error) => console.error(error));
     }
-  }, [renderedContent]);  // If put this, then don't update; otherwise too slow
+  }, [html]);
 
-  return <span className="markdown" style={style} dangerouslySetInnerHTML={{ __html: renderedContent }} />;
+  return <span ref={ref} className="markdown" style={style} dangerouslySetInnerHTML={html} />;
 }
 
 function ExternalLink({ link, style, anchorText }) {

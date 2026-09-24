@@ -230,8 +230,29 @@ button {
   padding: 3px;
 }
 
+.structure-list > tbody > tr > td {
+  vertical-align: top;
+  padding: 0 4px 0 0;
+}
+
 .dict {
   border: 1px solid #ccc;
+}
+
+/* Inline values: tinted like .env so they read as annotations, not code */
+.line-env {
+  display: inline-block;
+  margin-left: 2em;
+  padding: 0 6px;
+  border-radius: 4px;
+  background-color: rgba(223, 255, 255, 0.85);
+  font-size: 12px;
+  color: #456;
+}
+
+.line-env td {
+  vertical-align: top;
+  padding: 0 2px;
 }
 
 .cloaked {
