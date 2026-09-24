@@ -26,8 +26,8 @@ class Reference:
                     name += "+"
             return f"[{name} {year}]"
         elif self.title:
-            return self.title
+            return f"[{self.title}]"
         elif self.url:
-            return self.url
+            return f"[{self.url}]"
         else:
             return "?"
