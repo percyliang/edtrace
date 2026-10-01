@@ -1,6 +1,6 @@
 [project]
 name = "edtrace"
-version = "0.1.16"
+version = "0.1.17"
 description = "Library for tracing through Python programs for educational presentation"
 readme = "README.md"
 requires-python = ">=3.11"

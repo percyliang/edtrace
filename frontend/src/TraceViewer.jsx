@@ -402,7 +402,7 @@ function renderEnv({trace, currentStepIndex}) {
       <tr key={key}>
         <td className="code-container key">{key}</td>
         <td className="code-container">=</td>
-        <td className="code-container" title={renderTitle(value)}>{renderValue(value)}</td>
+        <td className="code-container" title={renderTitle(value)}>{renderValue(value, key)}</td>
       </tr>
     );
   });
@@ -431,6 +431,17 @@ function inSameFunction(stack1, stack2) {
 /**
  * Return whether stack1 is an ancestor of stack2.
  */
+/**
+ * Return whether `stack` is the start of a function call.
+ * A call starts at the def line of the function being run
+ * (as opposed to a def statement of a nested function, which runs in the enclosing function).
+ */
+function isFunctionCall(stack) {
+  const item = getLast(stack);
+  const match = (item.code || "").match(/^\s*(?:async\s+)?def\s+(\w+)/);
+  return match !== null && match[1] === item.function_name;
+}
+
 function isStrictAncestorOf(stack1, stack2) {
   return stack1.length < stack2.length;
 }
@@ -439,7 +450,10 @@ function isInteger(value) {
   return typeof value === "number" && value % 1 === 0;
 }
 
-function renderValue(value) {
+/**
+ * Render a value; `name` (if given) is the variable name, used to label tensor cells with their index.
+ */
+function renderValue(value, name) {
   if (!value.type) {  // Shouldn't happen, but be defensive
     return "NO_TYPE:" + JSON.stringify(value);  // For debugging
   }
@@ -453,7 +467,7 @@ function renderValue(value) {
     return renderNumber(value.contents);
   }
   if (["torch.Tensor", "torch.nn.parameter.Parameter", "numpy.ndarray"].includes(value.type)) {
-    return renderTensor(value.shape, value.contents);
+    return renderTensor(value.shape, value.contents, name, renderTitle(value));
   }
   if (value.type.startsWith("sympy.core.")) {
     return value.contents;
@@ -488,21 +502,27 @@ function renderNumber(x) {
   return x.toFixed(4);
 }
 
-function renderTensor(shape, contents) {
+function renderTensor(shape, contents, name, title) {
   if (shape.length === 0) {
     return renderNumber(contents);
   }
 
+  // Tooltip for each cell: the tensor's title plus e.g. "x[1][2] = 5"
+  const renderCell = (v, indices) => {
+    const cellTitle = name ? `${title}\n${name}${indices.map((i) => `[${i}]`).join("")} = ${renderNumber(v)}` : undefined;
+    return <td key={indices[indices.length - 1]} title={cellTitle}>{renderNumber(v)}</td>;
+  };
+
   if (shape.length === 1) {
     return <table className="matrix"><tbody><tr>{
-      contents.map((v, i) => <td key={i}>{renderNumber(v)}</td>)
+      contents.map((v, i) => renderCell(v, [i]))
     }</tr></tbody></table>;
   }
 
   if (shape.length === 2) {
     return <table className="matrix"><tbody>{
-      contents.map((row, rowIndex) => <tr key={rowIndex}>{
-        row.map((v, colIndex) => <td key={colIndex}>{renderNumber(v)}</td>)
+      contents.map((row, i) => <tr key={i}>{
+        row.map((v, j) => renderCell(v, [i, j]))
       }</tr>)
     }</tbody></table>;
   }
@@ -510,17 +530,17 @@ function renderTensor(shape, contents) {
   if (shape.length === 3) {
     // Stack the slices vertically
     const allRows = [];
-    for (const slice of contents) {
+    contents.forEach((slice, i) => {
       // Add a separator between slices
-      if (allRows.length > 0) {
-        allRows.push(<tr key="separator"><td colSpan={slice[0].length}>&nbsp;</td></tr>);
+      if (i > 0) {
+        allRows.push(<tr key={`separator-${i}`}><td colSpan={slice[0].length}>&nbsp;</td></tr>);
       }
-      slice.forEach((row, rowIndex) => {
-        allRows.push(<tr key={allRows.length}>{  // Don't use rowIndex because need to include slice
-          row.map((v, colIndex) => <td key={colIndex}>{renderNumber(v)}</td>)
+      slice.forEach((row, j) => {
+        allRows.push(<tr key={`${i}-${j}`}>{
+          row.map((v, k) => renderCell(v, [i, j, k]))
         }</tr>);
       });
-    }
+    });
     return <table className="matrix"><tbody>{allRows}</tbody></table>;
   }
 
@@ -599,13 +619,29 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
   }
 
   // For each line in this file, the inspected values from its most recent execution up to the current step
-  // (if animating) or from its last execution in the whole trace (if not)
+  // (if animating) or from its last execution in the whole trace (if not).
+  // When a function is called, the values from its previous call are cleared.
   const lineNumberToEnv = {};
+  const lineNumberToFunction = {};  // Which function (location of its def line) set lineNumberToEnv
+  const functionAtDepth = [];  // Function (location of its def line) running at each depth of the stack
   const lastStepIndex = animateMode ? currentStepIndex : trace.steps.length - 1;
   for (let stepIndex = 0; stepIndex <= lastStepIndex; stepIndex++) {
-    const item = getLast(trace.steps[stepIndex].stack);
+    const stack = trace.steps[stepIndex].stack;
+    const item = getLast(stack);
+    const depth = stack.length - 1;
+    if (isFunctionCall(stack)) {
+      const fn = getLocation(item.path, item.line_number);
+      functionAtDepth[depth] = fn;
+      for (const lineNumber in lineNumberToFunction) {
+        if (lineNumberToFunction[lineNumber] === fn) {
+          delete lineNumberToEnv[lineNumber];
+          delete lineNumberToFunction[lineNumber];
+        }
+      }
+    }
     if (item.path === currentPath && Object.keys(trace.steps[stepIndex].env).length > 0) {
       lineNumberToEnv[item.line_number] = trace.steps[stepIndex].env;
+      lineNumberToFunction[item.line_number] = functionAtDepth[depth];
     }
   }
 
@@ -755,7 +791,7 @@ function renderLineEnv(env) {
           <tr key={key}>
             <td className="code-container key">{key}</td>
             <td className="code-container">=</td>
-            <td className="code-container" title={renderTitle(value)}>{renderValue(value)}</td>
+            <td className="code-container" title={renderTitle(value)}>{renderValue(value, key)}</td>
           </tr>
         ))
       }</tbody></table>
