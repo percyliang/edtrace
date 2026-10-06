@@ -28,12 +28,16 @@ class Rendering:
     - image: an image (data = url)
     - video: a video (data = url)
     - link: an link to internal code or external URL
+    - plot: a Vega-Lite chart (data = spec)
+    - graph: a graph drawn with Cytoscape.js (data = nodes, edges, layout, width, height)
     """
     type: str
     data: str | None = None
     style: dict | None = None
     external_link: Reference | None = None
     internal_link: CodeLocation | None = None
+    animate: bool = False
+    """Whether to show the renderings of this line one at a time (from the @animate directive)."""
 
 ############################################################
 
@@ -129,6 +133,50 @@ def link(arg: type | Reference | str | None = None, style: dict | None = None, *
 def plot(spec: any):
     """Show a plot given `spec`."""
     _current_renderings.append(Rendering(type="plot", data=spec))
+
+
+def graph(spec: dict | None, style: dict | None = None):
+    """Show a graph given `spec` (from `make_graph`), drawn (interactively) with Cytoscape.js in the browser (nothing if `spec` is None)."""
+    if spec is None:
+        return
+    _current_renderings.append(Rendering(type="graph", data=spec, style=style or {}))
+
+
+def make_graph(nodes: list[dict], edges: list[dict], layout: str | dict = "preset", stylesheet: list[dict] | None = None,
+               width: int = 500, height: int = 200) -> dict:
+    """
+    Return the spec of a graph (to show with `graph`).
+    - `nodes`: list of {"id", "label" (defaults to id), "x", "y" (position, for the "preset" layout),
+      "classes" (optional), and any other data fields (which `stylesheet` can refer to)}
+    - `edges`: list of {"source", "target", "label" (optional), "classes" (optional), and any other data fields}
+    - `layout`: name of a Cytoscape layout ("preset" uses the x, y of the nodes; e.g., "breadthfirst", "circle", "grid", "cose")
+      or a dict of layout options
+    - `stylesheet`: Cytoscape stylesheet ([{"selector", "style"}]), applied after the defaults
+    - `width`, `height`: size of the graph in pixels
+    """
+    def element(item: dict, is_node: bool) -> dict:
+        """Convert to Cytoscape's element format: {data, position, classes}."""
+        item = dict(item)
+        result = {}
+        if is_node and "x" in item and "y" in item:
+            result["position"] = {"x": item.pop("x"), "y": item.pop("y")}
+        if "classes" in item:
+            result["classes"] = item.pop("classes")
+        for key in ("id", "source", "target"):  # Cytoscape ids must be strings
+            if key in item:
+                item[key] = str(item[key])
+        if is_node:
+            item.setdefault("label", item["id"])
+        result["data"] = item
+        return result
+    return {
+        "nodes": [element(node, is_node=True) for node in nodes],
+        "edges": [element(edge, is_node=False) for edge in edges],
+        "layout": {"name": layout} if isinstance(layout, str) else layout,
+        "stylesheet": stylesheet or [],
+        "width": width,
+        "height": height,
+    }
 
 
 def note(message: str):

@@ -105,6 +105,11 @@ button {
   list-style-type: disc;
 }
 
+/* Nested bullets (indented by leading spaces in the markdown) */
+.markdown.nested ul {
+  list-style-type: circle;
+}
+
 .markdown ol {
   margin: 0;
   padding-left: 17px;
@@ -302,4 +307,11 @@ button {
 .trace-path-help {
   margin-top: 20px;
   color: #666;
+}
+/* Position within the renderings of an @animate line, e.g., "2 / 5" */
+.animation-counter {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #999;
+  vertical-align: top;
 }

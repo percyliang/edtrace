@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import sympy
 import os
-from dataclasses import dataclass, asdict, field, is_dataclass, fields
+from dataclasses import dataclass, asdict, field, is_dataclass, fields, replace
 from .execute_util import Rendering, pop_renderings
 from .file_util import relativize
 
@@ -74,7 +74,8 @@ DIRECTIVE_INSPECT = "@inspect"  # Show (and update) the value of a variable
 DIRECTIVE_CLEAR = "@clear"  # Stop showing the value of a variable
 DIRECTIVE_STEPOVER = "@stepover"  # Don't trace into the current line
 DIRECTIVE_HIDE = "@hide"  # Don't show this line at all
-ACCEPTED_DIRECTIVES = [DIRECTIVE_INSPECT, DIRECTIVE_CLEAR, DIRECTIVE_STEPOVER, DIRECTIVE_HIDE]
+DIRECTIVE_ANIMATE = "@animate"  # Show the outputs (renderings) of this line one at a time
+ACCEPTED_DIRECTIVES = [DIRECTIVE_INSPECT, DIRECTIVE_CLEAR, DIRECTIVE_STEPOVER, DIRECTIVE_HIDE, DIRECTIVE_ANIMATE]
 
 
 @dataclass(frozen=True)
@@ -333,6 +334,8 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
 
             # Capture the renderings of the last line
             close_step.renderings = pop_renderings()
+            if any(directive.name == DIRECTIVE_ANIMATE for directive in directives):
+                close_step.renderings = [replace(rendering, animate=True) for rendering in close_step.renderings]
 
             # Pass control back to the global trace function
             return trace_func(frame, event, arg)

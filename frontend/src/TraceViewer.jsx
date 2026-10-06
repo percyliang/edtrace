@@ -6,6 +6,7 @@ import 'highlight.js/styles/github.css';
 import { getLast } from './utils';
 import { marked } from 'marked';
 import { VegaEmbed } from 'react-vega';
+import CytoscapeGraph from './CytoscapeGraph';
 
 function TraceViewer() {
   // Parse URL params
@@ -19,6 +20,7 @@ function TraceViewer() {
   const hideEnv = urlParams.get('hideEnv');
   const showNotes = urlParams.get('showNotes');
   const showLineEnv = urlParams.get('showLineEnv');
+  const lineAnimate = parseInt(urlParams.get('lineAnimate')) || 0;  // Which rendering to show on the current line (for @animate)
   const navigate = useNavigate();
 
   const [error, setError] = useState(null);
@@ -69,13 +71,13 @@ function TraceViewer() {
       }
 
       if (!event.shiftKey && (event.key === 'ArrowRight' || event.key === 'l')) {
-        stepForward({trace, currentStepIndex, navigate});
+        stepForward({trace, currentStepIndex, lineAnimate, navigate});
       } else if (!event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'h')) {
-        stepBackward({currentStepIndex, navigate});
+        stepBackward({currentStepIndex, lineAnimate, navigate});
       } else if ((event.shiftKey && event.key === 'ArrowRight') || event.key === 'j') {
-        stepOverForward({trace, currentStepIndex, navigate});
+        stepOverForward({trace, currentStepIndex, lineAnimate, navigate});
       } else if ((event.shiftKey && event.key === 'ArrowLeft') || event.key === 'k') {
-        stepOverBackward({trace, currentStepIndex, navigate});
+        stepOverBackward({trace, currentStepIndex, lineAnimate, navigate});
       } else if (event.shiftKey && (event.key === 'ArrowRight' || event.key === 'l')) {
         stepForward({trace, currentStepIndex, navigate, stayOnSameLine: true});
       } else if (event.key === 'u') {
@@ -91,7 +93,8 @@ function TraceViewer() {
       } else if (event.key === 'N') {
         toggleShowNotes({showNotes, navigate});
       } else if (event.key === 'g') {
-        gotoTrace({tracePath, navigate});
+        // Open the prompt after this keystroke is done, so the "g" doesn't get typed into the prompt
+        setTimeout(() => gotoTrace({tracePath, navigate}), 0);
       } else {
         return;
       }
@@ -102,7 +105,7 @@ function TraceViewer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [trace, targetStepIndex, targetLineNumber, rawMode, animateMode, hideEnv, showLineEnv, navigate]);
+  }, [trace, tracePath, targetStepIndex, targetLineNumber, lineAnimate, rawMode, animateMode, hideEnv, showLineEnv, showNotes, navigate]);
 
   // Update drag handlers
   const handleMouseDown = (e) => {
@@ -187,7 +190,7 @@ function TraceViewer() {
   }
 
   const renderedEnv = currentStepIndex !== null && !hideEnv ? renderEnv({trace, currentStepIndex}) : null;
-  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate});
+  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate});
 
   return (
     <div
@@ -209,39 +212,99 @@ function TraceViewer() {
   );
 }
 
-function stepForward({trace, currentStepIndex, navigate}) {
+function stepForward({trace, currentStepIndex, lineAnimate, navigate}) {
+  if (lineAnimate < getNumAnimationFrames(trace, currentStepIndex) - 1) {
+    updateUrlParams({ lineAnimate: lineAnimate + 1 }, navigate);
+    return;
+  }
   const newStepIndex = currentStepIndex + 1;
   if (newStepIndex < trace.steps.length) {
-    updateUrlParams({ step: newStepIndex, source: null, line: null }, navigate);
+    updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
 }
 
-function stepBackward({currentStepIndex, navigate}) {
+function stepBackward({currentStepIndex, lineAnimate, navigate}) {
+  if (lineAnimate > 0) {
+    updateUrlParams({ lineAnimate: lineAnimate - 1 || null }, navigate);
+    return;
+  }
   const newStepIndex = currentStepIndex - 1;
   if (newStepIndex >= 0) {
-    updateUrlParams({ step: newStepIndex, source: null, line: null }, navigate);
+    updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
 }
 
-function stepOverForward({trace, currentStepIndex, navigate, stayOnSameLine}) {
+function stepOverForward({trace, currentStepIndex, lineAnimate, navigate, stayOnSameLine}) {
+  if (lineAnimate < getNumAnimationFrames(trace, currentStepIndex) - 1) {
+    updateUrlParams({ lineAnimate: lineAnimate + 1 }, navigate);
+    return;
+  }
   const newStepIndex = getStepOverIndex({trace, currentStepIndex, direction: 1, stayOnSameLine});
   if (newStepIndex < trace.steps.length) {
-    updateUrlParams({ step: newStepIndex, source: null, line: null }, navigate);
+    updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
 }
 
-function stepOverBackward({trace, currentStepIndex, navigate}) {
+function stepOverBackward({trace, currentStepIndex, lineAnimate, navigate}) {
+  if (lineAnimate > 0) {
+    updateUrlParams({ lineAnimate: lineAnimate - 1 || null }, navigate);
+    return;
+  }
   const newStepIndex = getStepOverIndex({trace, currentStepIndex, direction: -1});
   if (newStepIndex >= 0) {
-    updateUrlParams({ step: newStepIndex, source: null, line: null }, navigate);
+    updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
 }
 
 function stepUp({trace, currentStepIndex, navigate}) {
   const newStepIndex = getStepUpIndex({trace, currentStepIndex, direction: 1});
   if (newStepIndex < trace.steps.length) {
-    updateUrlParams({ step: newStepIndex, source: null, line: null }, navigate);
+    updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
+}
+
+/**
+ * Map each line number to its renderings: from the most recent step on that line (with renderings) up to the
+ * current step, or if the line hasn't produced renderings yet, from the first one after it.
+ * (A line can produce different renderings each time it's executed, e.g., in a loop.)
+ */
+function getLineNumberToRenderings(trace, currentStepIndex) {
+  const lineNumberToRenderings = [];
+  const future = [];
+  trace.steps.forEach((step, stepIndex) => {
+    if (step.renderings.length === 0) {
+      return;
+    }
+    const lineNumber = getLast(step.stack).line_number;
+    if (stepIndex <= currentStepIndex) {
+      lineNumberToRenderings[lineNumber] = step.renderings;
+    } else if (future[lineNumber] === undefined) {
+      future[lineNumber] = step.renderings;
+    }
+  });
+  future.forEach((renderings, lineNumber) => {
+    if (lineNumberToRenderings[lineNumber] === undefined) {
+      lineNumberToRenderings[lineNumber] = renderings;
+    }
+  });
+  return lineNumberToRenderings;
+}
+
+/**
+ * If the renderings of `lineNumber` are animated (@animate), return them (one is shown at a time); otherwise null.
+ */
+function getAnimationFrames(lineNumberToRenderings, lineNumber) {
+  const renderings = (lineNumberToRenderings[lineNumber] || []).filter((rendering) => rendering.type !== "note");
+  return renderings.some((rendering) => rendering.animate) ? renderings : null;
+}
+
+/**
+ * Number of renderings shown one at a time on the line of the current step (0 if it isn't animated).
+ */
+function getNumAnimationFrames(trace, currentStepIndex) {
+  const lineNumber = getLast(trace.steps[currentStepIndex].stack).line_number;
+  const frames = getAnimationFrames(getLineNumberToRenderings(trace, currentStepIndex), lineNumber);
+  return frames ? frames.length : 0;
 }
 
 function getStepOverIndex({trace, currentStepIndex, direction, stayOnSameLine}) {
@@ -346,7 +409,7 @@ function toggleShowNotes({showNotes, navigate}) {
 function gotoTrace({tracePath, navigate}) {
   const newTracePath = prompt("Enter trace name or path:", tracePath);
   if (newTracePath) {
-    updateUrlParams({ trace: newTracePath, source: null, line: null, step: null }, navigate);
+    updateUrlParams({ trace: newTracePath, source: null, line: null, step: null, lineAnimate: null }, navigate);
   }
 }
 
@@ -469,8 +532,8 @@ function renderValue(value, name) {
   if (["torch.Tensor", "torch.nn.parameter.Parameter", "numpy.ndarray"].includes(value.type)) {
     return renderTensor(value.shape, value.contents, name, renderTitle(value));
   }
-  if (value.type.startsWith("sympy.core.")) {
-    return value.contents;
+  if (value.type.startsWith("sympy.core.") || value.type === "fractions.Fraction") {
+    return value.contents;  // Already a string like "8/3" (show without quotes)
   }
 
   // Interpret value.contents as a JSON object
@@ -609,14 +672,11 @@ function makeProgressBar(currentStepIndex, totalSteps) {
   );
 }
 
-function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate}) {
+function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate}) {
   const linesToShow = computeLinesToShow({trace, currentStepIndex});
 
   // Build a map of line number to renderings
-  const lineNumberToRenderings = [];
-  for (const step of trace.steps) {
-    lineNumberToRenderings[getLast(step.stack).line_number] = step.renderings;
-  }
+  const lineNumberToRenderings = getLineNumberToRenderings(trace, currentStepIndex);
 
   // For each line in this file, the inspected values from its most recent execution up to the current step
   // (if animating) or from its last execution in the whole trace (if not).
@@ -666,7 +726,16 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
     // Renderings are things that we show instead of the raw line
     // Exception: if there is a note rendering, then we pull it out and show it separately
     const fullRenderings = lineNumberToRenderings[lineNumber] || [];
-    const renderings = fullRenderings.filter((rendering) => rendering.type !== "note");
+    let renderings = fullRenderings.filter((rendering) => rendering.type !== "note");
+
+    // @animate: show one rendering at a time (the current line's is chosen by lineAnimate; other lines show the first)
+    const animationFrames = getAnimationFrames(lineNumberToRenderings, lineNumber);
+    let animationCounter = null;
+    if (animationFrames) {
+      const frame = lineNumber === currentLineNumber ? Math.min(lineAnimate, animationFrames.length - 1) : 0;
+      renderings = [animationFrames[frame]];
+      animationCounter = <span className="animation-counter">{frame + 1} / {animationFrames.length}</span>;
+    }
     const noteRenderings = fullRenderings.filter((rendering) => rendering.type === "note");
 
     // Replace with renderings if it exists
@@ -682,7 +751,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
           {renderRendering(rendering, navigate)}
         </span>;
       });
-      renderedItems.push(<div key="renderings" className="renderings">{renderedRenderings}</div>);
+      renderedItems.push(<div key="renderings" className="renderings">{renderedRenderings}{animationCounter}</div>);
     } else {
       let newLine = rawMode ? line : removeDirectives(line);
       // Note: line is HTML for syntax highlighting
@@ -745,10 +814,10 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
       <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleHideEnv({hideEnv, navigate})}>{envIcon}</button>
       <button title="Toggle inline variable values under each @inspect line [shortcut: e]" onClick={() => toggleShowLineEnv({showLineEnv, navigate})}>{showLineEnvIcon}</button>
       <button title="Toggle notes display (whether to show notes) [shortcut: N]" onClick={() => toggleShowNotes({showNotes, navigate})}>{notesIcon}</button>
-      <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({currentStepIndex, navigate})}>{stepBackwardIcon}</button>
-      <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, navigate})}>{stepForwardIcon}</button>
-      <button title="Step over backward (stay at this level of the stack) [shortcut: k or shift-left]" onClick={() => stepOverBackward({trace, currentStepIndex, navigate})}>{stepOverBackwardIcon}</button>
-      <button title="Step over forward (stay at this level of the stack) [shortcut: j or shift-right]" onClick={() => stepOverForward({trace, currentStepIndex, navigate})}>{stepOverForwardIcon}</button>
+      <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({currentStepIndex, lineAnimate, navigate})}>{stepBackwardIcon}</button>
+      <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, lineAnimate, navigate})}>{stepForwardIcon}</button>
+      <button title="Step over backward (stay at this level of the stack) [shortcut: k or shift-left]" onClick={() => stepOverBackward({trace, currentStepIndex, lineAnimate, navigate})}>{stepOverBackwardIcon}</button>
+      <button title="Step over forward (stay at this level of the stack) [shortcut: j or shift-right]" onClick={() => stepOverForward({trace, currentStepIndex, lineAnimate, navigate})}>{stepOverForwardIcon}</button>
       <button title="Step forward until we're out of this function [shortcut: u]" onClick={() => stepUp({trace, currentStepIndex, navigate})}>{stepUpIcon}</button>
     </span>
   )
@@ -823,7 +892,7 @@ function gotoLine({trace, currentPath, currentLineNumber, currentStepIndex, line
     // Go forward, looking for lineNumber
     while (stepIndex < trace.steps.length) {
       if (getLast(trace.steps[stepIndex].stack).line_number === lineNumber) {
-        updateUrlParams({ source: null, line: null, step: stepIndex }, navigate);
+        updateUrlParams({ source: null, line: null, step: stepIndex, lineAnimate: null }, navigate);
         return;
       }
       stepIndex++;
@@ -832,14 +901,14 @@ function gotoLine({trace, currentPath, currentLineNumber, currentStepIndex, line
     // Go backward, looking for lineNumber
     while (stepIndex >= 0) {
       if (getLast(trace.steps[stepIndex].stack).line_number === lineNumber) {
-        updateUrlParams({ source: null, line: null, step: stepIndex }, navigate);
+        updateUrlParams({ source: null, line: null, step: stepIndex, lineAnimate: null }, navigate);
         return;
       }
       stepIndex--;
     }
   }
   // Otherwise, just show the line
-  updateUrlParams({ source: currentPath, line: lineNumber, step: null }, navigate);
+  updateUrlParams({ source: currentPath, line: lineNumber, step: null, lineAnimate: null }, navigate);
 }
 
 function scrollIntoViewIfNeeded(elem) {
@@ -865,6 +934,14 @@ function scrollIntoViewIfNeeded(elem) {
 
 function MarkdownRenderer({ content, style }) {
   const ref = useRef(null);
+
+  // Each line is rendered on its own, so nesting is lost; instead, a bullet indented by
+  // leading spaces (e.g., "  - foo") is rendered as a nested bullet (every 2 spaces is one level).
+  const nestedBullet = content.match(/^( +)([-*+] )/);
+  const nestingLevel = nestedBullet ? Math.floor(nestedBullet[1].length / 2) : 0;
+  if (nestedBullet) {
+    content = content.slice(nestedBullet[1].length);  // Otherwise 4+ spaces would make it a code block
+  }
 
   // Memoize the object passed to dangerouslySetInnerHTML: React 19 compares it by
   // identity, so a new object on every render would reset innerHTML and wipe out
@@ -894,7 +971,9 @@ function MarkdownRenderer({ content, style }) {
     }
   }, [html]);
 
-  return <span ref={ref} className="markdown" style={style} dangerouslySetInnerHTML={html} />;
+  const className = nestingLevel > 0 ? "markdown nested" : "markdown";
+  const nestedStyle = nestingLevel > 0 ? { paddingLeft: `${1.5 * nestingLevel}em`, ...style } : style;
+  return <span ref={ref} className={className} style={nestedStyle} dangerouslySetInnerHTML={html} />;
 }
 
 function ExternalLink({ link, style, anchorText }) {
@@ -971,7 +1050,7 @@ function renderRendering(rendering, navigate) {
       const link = rendering.internal_link;
       const anchorText = rendering.data || link.path + ":" + link.line_number;
       return (<a href="#" style={rendering.style}
-                 onClick={() => updateUrlParams({ source: link.path, line: link.line_number, step: null }, navigate)}
+                 onClick={() => updateUrlParams({ source: link.path, line: link.line_number, step: null, lineAnimate: null }, navigate)}
               >
         {anchorText}
       </a>);
@@ -981,6 +1060,8 @@ function renderRendering(rendering, navigate) {
     }
   } else if (rendering.type === "plot") {
     return <VegaEmbed spec={rendering.data} style={rendering.style} />;
+  } else if (rendering.type === "graph") {
+    return <CytoscapeGraph data={rendering.data} style={rendering.style} />;
   } else {
     return <span style={rendering.style}>{rendering.data}</span>;
   }
