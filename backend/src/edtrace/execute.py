@@ -1,4 +1,5 @@
 import argparse
+import functools
 import math
 import importlib
 import inspect
@@ -110,6 +111,12 @@ def parse_directives(line: str) -> list[Directive]:
     return directives
 
 
+@functools.lru_cache(maxsize=None)
+def is_stepover(code: str | None) -> bool:
+    """Whether the line `code` has the @stepover directive."""
+    return any(directive.name == DIRECTIVE_STEPOVER for directive in parse_directives(code or ""))
+
+
 def get_inspect_expressions(directives: list[Directive]) -> list[str]:
     """
     If code contains "@inspect <variable>" (as a comment), return those variables.
@@ -210,8 +217,6 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
     # Figure out which files we're actually tracing
     visible_paths = []
 
-    # Stack of locations that we're stepping over
-    stepovers = []
 
     def get_stack() -> list[StackElement]:
         """Return the last element of `stack`, but skip over items where local_trace_func is active."""
@@ -263,19 +268,11 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
         if item.function_name in ("<listcomp>", "<lambda>"):
             return trace_func
 
-        # Handle @stepover (don't recurse)
         directives = parse_directives(item.code)
-        if any(directive.name == DIRECTIVE_STEPOVER for directive in directives):
-            # If stepping over this line
-            if len(stepovers) > 0 and stepovers[-1] == (item.path, item.line_number):
-                # Stop skipping since we're back to this line
-                stepovers.pop()
-            else:
-                # Just starting to skip starting here
-                stepovers.append((item.path, item.line_number))
-        
-        # Skip everything that is strictly under stepovers
-        if any(stepover[0] == item.path and stepover[1] == item.line_number for stepover in stepovers for item in stack[:-1]):
+
+        # Handle @stepover (don't recurse): skip everything called from a line marked @stepover.
+        # (Determined from the stack, since a line can be reported more than once, e.g., a call spanning multiple lines.)
+        if any(is_stepover(caller.code) for caller in stack[:-1]):
             return trace_func
 
         print(f"  [{len(steps)} {os.path.basename(item.path)}:{item.line_number}] {item.code}")
