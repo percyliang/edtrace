@@ -728,11 +728,11 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
     const fullRenderings = lineNumberToRenderings[lineNumber] || [];
     let renderings = fullRenderings.filter((rendering) => rendering.type !== "note");
 
-    // @animate: show one rendering at a time (the current line's is chosen by lineAnimate; other lines show the first)
+    // @animate: show one rendering at a time (the current line's is chosen by lineAnimate; other lines show the last)
     const animationFrames = getAnimationFrames(lineNumberToRenderings, lineNumber);
     let animationCounter = null;
     if (animationFrames) {
-      const frame = lineNumber === currentLineNumber ? Math.min(lineAnimate, animationFrames.length - 1) : 0;
+      const frame = lineNumber === currentLineNumber ? Math.min(lineAnimate, animationFrames.length - 1) : animationFrames.length - 1;
       renderings = [animationFrames[frame]];
       animationCounter = <span className="animation-counter">{frame + 1} / {animationFrames.length}</span>;
     }
