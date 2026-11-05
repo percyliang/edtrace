@@ -117,6 +117,18 @@ button {
   display: inline-block;
 }
 
+.markdown table {
+  border-collapse: collapse;
+  display: inline-table;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid #ccc;
+  padding: 2px 10px;
+  text-align: center;
+}
+
 .link-container {
   display: inline-block;
   position: relative;

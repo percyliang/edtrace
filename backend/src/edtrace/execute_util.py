@@ -4,6 +4,7 @@ which will be shown in place of the line of code in the interface.
 """
 
 import os
+import sys
 import inspect
 import re
 import subprocess
@@ -55,7 +56,7 @@ def text(message: str, style: dict | None = None, verbatim: bool = False):
         messages = [message]
 
     for message in messages:
-        _current_renderings.append(Rendering(type="markdown", data=message, style=style))
+        _add_rendering(Rendering(type="markdown", data=message, style=style))
 
 
 def image(url: str, style: dict | None = None, width: int | str | None = None):
@@ -71,7 +72,7 @@ def image(url: str, style: dict | None = None, width: int | str | None = None):
         if not os.path.exists(path):
             raise ValueError(f"Image not found: {path}")
 
-    _current_renderings.append(Rendering(type="image", data=path, style=style))
+    _add_rendering(Rendering(type="image", data=path, style=style))
 
 
 def video(url: str, style: dict | None = None, width: int | str | None = None):
@@ -87,7 +88,7 @@ def video(url: str, style: dict | None = None, width: int | str | None = None):
         if not os.path.exists(path):
             raise ValueError(f"Video not found: {path}")
 
-    _current_renderings.append(Rendering(type="video", data=path, style=style))
+    _add_rendering(Rendering(type="video", data=path, style=style))
 
 
 def is_url(url: str) -> bool:
@@ -115,31 +116,31 @@ def link(arg: type | Reference | str | None = None, style: dict | None = None, *
 
     if arg is None:
         reference = Reference(**kwargs)
-        _current_renderings.append(Rendering(type="link", data=reference.label, style=style, external_link=reference))
+        _add_rendering(Rendering(type="link", data=reference.label, style=style, external_link=reference))
     elif isinstance(arg, Reference):
-        _current_renderings.append(Rendering(type="link", data=arg.label, style=style, external_link=arg))
+        _add_rendering(Rendering(type="link", data=arg.label, style=style, external_link=arg))
     elif isinstance(arg, type) or callable(arg):
         path = inspect.getfile(arg)
         _, line_number = inspect.getsourcelines(arg)
         anchor = CodeLocation(relativize(path), line_number)
-        _current_renderings.append(Rendering(type="link", data=arg.__name__, style=style, internal_link=anchor))
+        _add_rendering(Rendering(type="link", data=arg.__name__, style=style, internal_link=anchor))
     elif isinstance(arg, str):
         reference = url_reference(url=arg, **kwargs)
-        _current_renderings.append(Rendering(type="link", data=reference.label, style=style, external_link=reference))
+        _add_rendering(Rendering(type="link", data=reference.label, style=style, external_link=reference))
     else:
         raise ValueError(f"Invalid argument: {arg}")
 
 
 def plot(spec: any):
     """Show a plot given `spec`."""
-    _current_renderings.append(Rendering(type="plot", data=spec))
+    _add_rendering(Rendering(type="plot", data=spec))
 
 
 def graph(spec: dict | None, style: dict | None = None):
     """Show a graph given `spec` (from `make_graph`), drawn (interactively) with Cytoscape.js in the browser (nothing if `spec` is None)."""
     if spec is None:
         return
-    _current_renderings.append(Rendering(type="graph", data=spec, style=style or {}))
+    _add_rendering(Rendering(type="graph", data=spec, style=style or {}))
 
 
 def make_graph(nodes: list[dict], edges: list[dict], layout: str | dict = "preset", stylesheet: list[dict] | None = None,
@@ -181,18 +182,34 @@ def make_graph(nodes: list[dict], edges: list[dict], layout: str | dict = "prese
 
 def note(message: str):
     """Show a note."""
-    _current_renderings.append(Rendering(type="note", data=message))
+    _add_rendering(Rendering(type="note", data=message))
 
 
 ############################################################
 
 # Accumulate the renderings during execution (gets flushed).
 _current_renderings: list[Rendering] = []
+# For each rendering, the ids of the frame that produced it (the caller of `text`, `graph`, etc.) and of its caller
+_current_rendering_frame_ids: list[tuple[int, int]] = []
 
-def pop_renderings() -> list[Rendering]:
-    """Return the renderings and clear the list."""
-    renderings = _current_renderings.copy()
+def _add_rendering(rendering: Rendering):
+    """Add `rendering`, remembering which frame produced it (frame 0 is this function, 1 is `text`, `graph`, etc.)."""
+    frame = sys._getframe(2)
+    _current_renderings.append(rendering)
+    _current_rendering_frame_ids.append((id(frame), id(frame.f_back)))
+
+def pop_renderings(frame=None) -> list[Rendering]:
+    """
+    Return the renderings and clear the list.
+    If `frame` is given, only return the renderings produced by `frame` or the functions it called directly
+    (e.g., a helper that plots), not ones produced deeper (e.g., when stepping over a call that loops over a helper).
+    """
+    renderings = [
+        rendering for rendering, (frame_id, caller_id) in zip(_current_renderings, _current_rendering_frame_ids)
+        if frame is None or id(frame) in (frame_id, caller_id)
+    ]
     _current_renderings.clear()
+    _current_rendering_frame_ids.clear()
     return renderings
 
 

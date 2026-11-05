@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import hljs from 'highlight.js';
@@ -73,7 +73,7 @@ function TraceViewer() {
       if (!event.shiftKey && (event.key === 'ArrowRight' || event.key === 'l')) {
         stepForward({trace, currentStepIndex, lineAnimate, navigate});
       } else if (!event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'h')) {
-        stepBackward({currentStepIndex, lineAnimate, navigate});
+        stepBackward({trace, currentStepIndex, lineAnimate, navigate});
       } else if ((event.shiftKey && event.key === 'ArrowRight') || event.key === 'j') {
         stepOverForward({trace, currentStepIndex, lineAnimate, navigate});
       } else if ((event.shiftKey && event.key === 'ArrowLeft') || event.key === 'k') {
@@ -212,23 +212,43 @@ function TraceViewer() {
   );
 }
 
+/**
+ * Whether the step is on a line that's not shown (@hide).
+ */
+function isHiddenStep(trace, stepIndex) {
+  const frame = getLast(trace.steps[stepIndex].stack);
+  const hiddenLineNumbers = trace.hidden_line_numbers[frame.path];
+  return hiddenLineNumbers !== undefined && hiddenLineNumbers.includes(frame.line_number);
+}
+
+/**
+ * Return the index of the next step (going in `direction`) that's not on a hidden line (or out of range if none).
+ */
+function getNextVisibleStepIndex(trace, currentStepIndex, direction) {
+  let stepIndex = currentStepIndex + direction;
+  while (stepIndex >= 0 && stepIndex < trace.steps.length && isHiddenStep(trace, stepIndex)) {
+    stepIndex += direction;
+  }
+  return stepIndex;
+}
+
 function stepForward({trace, currentStepIndex, lineAnimate, navigate}) {
   if (lineAnimate < getNumAnimationFrames(trace, currentStepIndex) - 1) {
     updateUrlParams({ lineAnimate: lineAnimate + 1 }, navigate);
     return;
   }
-  const newStepIndex = currentStepIndex + 1;
+  const newStepIndex = getNextVisibleStepIndex(trace, currentStepIndex, 1);
   if (newStepIndex < trace.steps.length) {
     updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
 }
 
-function stepBackward({currentStepIndex, lineAnimate, navigate}) {
+function stepBackward({trace, currentStepIndex, lineAnimate, navigate}) {
   if (lineAnimate > 0) {
     updateUrlParams({ lineAnimate: lineAnimate - 1 || null }, navigate);
     return;
   }
-  const newStepIndex = currentStepIndex - 1;
+  const newStepIndex = getNextVisibleStepIndex(trace, currentStepIndex, -1);
   if (newStepIndex >= 0) {
     updateUrlParams({ step: newStepIndex, source: null, line: null, lineAnimate: null }, navigate);
   }
@@ -814,7 +834,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
       <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleHideEnv({hideEnv, navigate})}>{envIcon}</button>
       <button title="Toggle inline variable values under each @inspect line [shortcut: e]" onClick={() => toggleShowLineEnv({showLineEnv, navigate})}>{showLineEnvIcon}</button>
       <button title="Toggle notes display (whether to show notes) [shortcut: N]" onClick={() => toggleShowNotes({showNotes, navigate})}>{notesIcon}</button>
-      <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({currentStepIndex, lineAnimate, navigate})}>{stepBackwardIcon}</button>
+      <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({trace, currentStepIndex, lineAnimate, navigate})}>{stepBackwardIcon}</button>
       <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, lineAnimate, navigate})}>{stepForwardIcon}</button>
       <button title="Step over backward (stay at this level of the stack) [shortcut: k or shift-left]" onClick={() => stepOverBackward({trace, currentStepIndex, lineAnimate, navigate})}>{stepOverBackwardIcon}</button>
       <button title="Step over forward (stay at this level of the stack) [shortcut: j or shift-right]" onClick={() => stepOverForward({trace, currentStepIndex, lineAnimate, navigate})}>{stepOverForwardIcon}</button>
@@ -932,6 +952,13 @@ function scrollIntoViewIfNeeded(elem) {
   }
 }
 
+// Math delimiters (same as the MathJax config in index.html): $$...$$, $...$, \[...\], \(...\)
+const MATH_PATTERN = /\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)/g;
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function MarkdownRenderer({ content, style }) {
   const ref = useRef(null);
 
@@ -943,37 +970,72 @@ function MarkdownRenderer({ content, style }) {
     content = content.slice(nestedBullet[1].length);  // Otherwise 4+ spaces would make it a code block
   }
 
-  // Memoize the object passed to dangerouslySetInnerHTML: React 19 compares it by
-  // identity, so a new object on every render would reset innerHTML and wipe out
-  // the MathJax typesetting whenever we step.
-  const html = useMemo(() => {
+  // The HTML (with the math still as TeX for MathJax), recomputed only when the content changes
+  const {html, hasMath} = useMemo(() => {
     // Preserve the trailing whitespace
     const trailingWhitespace = content.endsWith(" ") ? "&nbsp;" : "";
 
     // Because we're rendering only one line of content at a time, the markdown
     // conversion puts <p> tags which produce a lot of vertical space.  So we
     // remove them.
-    let markdown = marked(content);
+    // Set the math aside so that markdown doesn't touch it (otherwise, e.g., \{ and \, lose their
+    // backslash and _ starts emphasis), and put it back (HTML-escaped) for MathJax afterwards.
+    const math = [];
+    const protectedContent = content.replace(MATH_PATTERN, (match) => {
+      math.push(match);
+      return `MATHPLACEHOLDER${math.length - 1}X`;
+    });
+
+    let markdown = marked(protectedContent);
     markdown = markdown.replace(/\n$/, '');
     markdown = markdown.replace(/^<p>/g, '').replace(/<\/p>$/g, '');
+    markdown = markdown.replace(/MATHPLACEHOLDER(\d+)X/g, (_, i) => escapeHtml(math[i]));
 
     // Add the trailing whitespace back
-    return { __html: markdown + trailingWhitespace };
+    return {html: markdown + trailingWhitespace, hasMath: math.length > 0};
   }, [content]);
 
-  // Typeset the math in this element whenever the content changes.
+  // We manage the contents of the element ourselves (not React), so that when the content changes
+  // (e.g., stepping through the frames of an @animate line), the old content stays up until the new
+  // content's math is typeset off-screen, and then they're swapped at once.  Otherwise, the raw TeX
+  // shows for a moment and the layout jumps (which makes everything below flicker).
   // (If MathJax is still loading, its startup pass will typeset the page.)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const elem = ref.current;
-    if (elem && window.MathJax?.typesetPromise) {
-      window.MathJax.typesetClear([elem]);
-      window.MathJax.typesetPromise([elem]).catch((error) => console.error(error));
+    const mathJax = window.MathJax;
+    const isFirst = !elem.hasChildNodes();
+    if (!hasMath || !mathJax?.typesetPromise || isFirst) {
+      // Nothing to wait for (or nothing to keep showing in the meantime): show it right away
+      if (mathJax?.typesetClear) {
+        mathJax.typesetClear([elem]);
+      }
+      elem.innerHTML = html;
+      if (hasMath && mathJax?.typesetPromise) {
+        mathJax.typesetPromise([elem]).catch((error) => console.error(error));
+      }
+      return;
     }
-  }, [html]);
+
+    // Typeset in a hidden staging element, then swap in its contents
+    const staging = document.createElement("span");
+    staging.className = elem.className;
+    staging.style.cssText = "position: absolute; left: -100000px; top: 0; visibility: hidden";
+    staging.innerHTML = html;
+    elem.parentNode.appendChild(staging);  // In the document (for MathJax's metrics), near where it'll go
+    let cancelled = false;
+    mathJax.typesetPromise([staging]).then(() => {
+      mathJax.typesetClear([staging]);  // Forget about it (its nodes are moving)
+      if (!cancelled) {
+        mathJax.typesetClear([elem]);
+        elem.replaceChildren(...staging.childNodes);
+      }
+    }).catch((error) => console.error(error)).finally(() => staging.remove());
+    return () => { cancelled = true; };
+  }, [html, hasMath]);
 
   const className = nestingLevel > 0 ? "markdown nested" : "markdown";
   const nestedStyle = nestingLevel > 0 ? { paddingLeft: `${1.5 * nestingLevel}em`, ...style } : style;
-  return <span ref={ref} className={className} style={nestedStyle} dangerouslySetInnerHTML={html} />;
+  return <span ref={ref} className={className} style={nestedStyle} />;
 }
 
 function ExternalLink({ link, style, anchorText }) {

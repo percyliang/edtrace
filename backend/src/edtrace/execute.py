@@ -11,6 +11,7 @@ import torch
 import sympy
 import os
 from dataclasses import dataclass, asdict, field, is_dataclass, fields, replace
+from . import execute_util
 from .execute_util import Rendering, pop_renderings
 from .file_util import relativize
 
@@ -329,9 +330,19 @@ def execute(module_name: str, inspect_all_variables: bool) -> Trace:
             for expr in clear_exprs:
                 close_step.env[expr] = None
 
-            # Capture the renderings of the last line
-            close_step.renderings = pop_renderings()
-            if any(directive.name == DIRECTIVE_ANIMATE for directive in directives):
+            # Capture the renderings of the last line.
+            # If the line was stepped over, only keep the renderings it produced directly (e.g., `graph(...)`),
+            # and by the functions it calls directly (e.g., a helper that plots), not ones produced deeper, unless we're animating them (@animate).
+            animate = any(directive.name == DIRECTIVE_ANIMATE for directive in directives)
+            stepover = any(directive.name == DIRECTIVE_STEPOVER for directive in directives)
+            if stepover and not animate:
+                num_renderings = len(execute_util._current_renderings)
+                close_step.renderings = pop_renderings(frame=frame)
+                if len(close_step.renderings) < num_renderings:
+                    print(f"    dropped {num_renderings - len(close_step.renderings)} renderings from inside stepped-over calls")
+            else:
+                close_step.renderings = pop_renderings()
+            if animate:
                 close_step.renderings = [replace(rendering, animate=True) for rendering in close_step.renderings]
 
             # Pass control back to the global trace function
