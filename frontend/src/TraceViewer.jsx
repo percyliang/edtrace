@@ -17,9 +17,9 @@ function TraceViewer() {
   const targetStepIndex = parseInt(urlParams.get('step')) || null;  // Step index to highlight
   const rawMode = urlParams.get('raw');
   const animateMode = urlParams.get('animate');
-  const hideEnv = urlParams.get('hideEnv');
+  const showGlobalEnv = urlParams.get('showGlobalEnv');
   const showNotes = urlParams.get('showNotes');
-  const showLineEnv = urlParams.get('showLineEnv');
+  const hideLineEnv = urlParams.get('hideLineEnv');
   const lineAnimate = parseInt(urlParams.get('lineAnimate')) || 0;  // Which rendering to show on the current line (for @animate)
   const navigate = useNavigate();
 
@@ -87,9 +87,9 @@ function TraceViewer() {
       } else if (event.key === 'A') {
         toggleAnimateMode({animateMode, navigate});
       } else if (event.key === 'E') {
-        toggleHideEnv({hideEnv, navigate});
+        toggleShowGlobalEnv({showGlobalEnv, navigate});
       } else if (event.key === 'e') {
-        toggleShowLineEnv({showLineEnv, navigate});
+        toggleHideLineEnv({hideLineEnv, navigate});
       } else if (event.key === 'N') {
         toggleShowNotes({showNotes, navigate});
       } else if (event.key === 'g') {
@@ -105,7 +105,7 @@ function TraceViewer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [trace, tracePath, targetStepIndex, targetLineNumber, lineAnimate, rawMode, animateMode, hideEnv, showLineEnv, showNotes, navigate]);
+  }, [trace, tracePath, targetStepIndex, targetLineNumber, lineAnimate, rawMode, animateMode, showGlobalEnv, hideLineEnv, showNotes, navigate]);
 
   // Update drag handlers
   const handleMouseDown = (e) => {
@@ -189,8 +189,8 @@ function TraceViewer() {
     }
   }
 
-  const renderedEnv = currentStepIndex !== null && !hideEnv ? renderEnv({trace, currentStepIndex}) : null;
-  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate});
+  const renderedEnv = currentStepIndex !== null && showGlobalEnv ? renderEnv({trace, currentStepIndex}) : null;
+  const renderedLines = renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, showGlobalEnv, hideLineEnv, showNotes, animateMode, navigate});
 
   return (
     <div
@@ -411,14 +411,14 @@ function toggleAnimateMode({animateMode, navigate}) {
   updateUrlParams({ animate: newAnimateMode ? "1" : null }, navigate);
 }
 
-function toggleHideEnv({hideEnv, navigate}) {
-  const newHideEnv = !hideEnv;
-  updateUrlParams({ hideEnv: newHideEnv ? "1" : null }, navigate);
+function toggleShowGlobalEnv({showGlobalEnv, navigate}) {
+  const newShowGlobalEnv = !showGlobalEnv;
+  updateUrlParams({ showGlobalEnv: newShowGlobalEnv ? "1" : null }, navigate);
 }
 
-function toggleShowLineEnv({showLineEnv, navigate}) {
-  const newShowLineEnv = !showLineEnv;
-  updateUrlParams({ showLineEnv: newShowLineEnv ? "1" : null }, navigate);
+function toggleHideLineEnv({hideLineEnv, navigate}) {
+  const newHideLineEnv = !hideLineEnv;
+  updateUrlParams({ hideLineEnv: newHideLineEnv ? "1" : null }, navigate);
 }
 
 function toggleShowNotes({showNotes, navigate}) {
@@ -692,7 +692,7 @@ function makeProgressBar(currentStepIndex, totalSteps) {
   );
 }
 
-function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, hideEnv, showLineEnv, showNotes, animateMode, navigate}) {
+function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, targetStepIndex, lineAnimate, rawMode, showGlobalEnv, hideLineEnv, showNotes, animateMode, navigate}) {
   const linesToShow = computeLinesToShow({trace, currentStepIndex});
 
   // Build a map of line number to renderings
@@ -812,15 +812,15 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
       <div key={index} className={lineClass.join(" ")} ref={isCurrentLine ? scrollIntoViewIfNeeded : null}>
         {lineNumberSpan}
         {renderedItemsSpan}
-        {showLineEnv && renderLineEnv(lineNumberToEnv[lineNumber])}
+        {!hideLineEnv && renderLineEnv(lineNumberToEnv[lineNumber])}
       </div>
     );
   });
 
   const animateIcon = animateMode ? "⛅️" : "☀️";
   const rawIcon = rawMode ? "⚙️" : "⚪️";
-  const envIcon = hideEnv ? "⬛" : "🅴";
-  const showLineEnvIcon = showLineEnv ? "🔎" : "⬛";
+  const envIcon = showGlobalEnv ? "🅴" : "⬛";
+  const lineEnvIcon = hideLineEnv ? "⬛" : "🔎";
   const notesIcon = showNotes ? "🛈" : "⬛";
   const stepBackwardIcon = "⬅️";
   const stepForwardIcon = "➡️";
@@ -831,8 +831,8 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
     <span className="icon-buttons">
       <button title="Toggle animation (whether to gradually show content when stepping through) [shortcut: A]" onClick={() => toggleAnimateMode({animateMode, navigate})}>{animateIcon}</button>
       <button title="Toggle raw mode (whether to show the underlying code) [shortcut: R]" onClick={() => toggleRawMode({rawMode, navigate})}>{rawIcon}</button>
-      <button title="Toggle environment display (whether to show variable values) [shortcut: E]" onClick={() => toggleHideEnv({hideEnv, navigate})}>{envIcon}</button>
-      <button title="Toggle inline variable values under each @inspect line [shortcut: e]" onClick={() => toggleShowLineEnv({showLineEnv, navigate})}>{showLineEnvIcon}</button>
+      <button title="Toggle global environment panel (all variable values in one box) [shortcut: E]" onClick={() => toggleShowGlobalEnv({showGlobalEnv, navigate})}>{envIcon}</button>
+      <button title="Toggle inline variable values under each @inspect line [shortcut: e]" onClick={() => toggleHideLineEnv({hideLineEnv, navigate})}>{lineEnvIcon}</button>
       <button title="Toggle notes display (whether to show notes) [shortcut: N]" onClick={() => toggleShowNotes({showNotes, navigate})}>{notesIcon}</button>
       <button title="Step backward (into functions if necessary) [shortcut: h or left]" onClick={() => stepBackward({trace, currentStepIndex, lineAnimate, navigate})}>{stepBackwardIcon}</button>
       <button title="Step forward (into functions if necessary) [shortcut: l or right]" onClick={() => stepForward({trace, currentStepIndex, lineAnimate, navigate})}>{stepForwardIcon}</button>
