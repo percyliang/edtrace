@@ -519,6 +519,109 @@ function inSameFunction(stack1, stack2) {
  * A call starts at the def line of the function being run
  * (as opposed to a def statement of a nested function, which runs in the enclosing function).
  */
+/**
+ * If step `stepIndex` is at the top of a function or loop body in `currentPath` and about to enter the body
+ * (for a loop: not when it exits), return the range [start, end] of the line numbers of the body; otherwise null.
+ * Each time this happens, a new pass over the body starts.
+ */
+function getBodyEntered(trace, stepIndex, currentPath, sourceLines) {
+  const stack = trace.steps[stepIndex].stack;
+  const item = getLast(stack);
+  if (item.path !== currentPath || !isBlockHeader(item.code)) {
+    return null;
+  }
+  const body = getBlockBody(sourceLines, item.line_number);
+  const nextStep = stepIndex + 1 < trace.steps.length ? trace.steps[stepIndex + 1] : null;
+  const nextItem = nextStep !== null ? getLast(nextStep.stack) : null;
+  const entersBody = isFunctionCall(stack) || (nextItem !== null && nextItem.path === currentPath &&
+    nextStep.stack.length === stack.length && nextItem.line_number >= body[0] && nextItem.line_number <= body[1]);
+  return entersBody ? body : null;
+}
+
+const changingLinesCache = new WeakMap();  // trace -> path -> lines whose renderings differ between executions
+
+/**
+ * Return the set of line numbers (of `path`) that produce different renderings in different executions
+ * (e.g., a graph that changes in each iteration of a loop).
+ */
+function getChangingLines(trace, path) {
+  if (!changingLinesCache.has(trace)) {
+    changingLinesCache.set(trace, {});
+  }
+  const cache = changingLinesCache.get(trace);
+  if (cache[path] === undefined) {
+    const lineNumberToSeen = {};
+    const changing = new Set();
+    for (const step of trace.steps) {
+      const item = getLast(step.stack);
+      if (item.path !== path || step.renderings.length === 0) {
+        continue;
+      }
+      const key = JSON.stringify(step.renderings);
+      if (lineNumberToSeen[item.line_number] === undefined) {
+        lineNumberToSeen[item.line_number] = key;
+      } else if (lineNumberToSeen[item.line_number] !== key) {
+        changing.add(item.line_number);
+      }
+    }
+    cache[path] = changing;
+  }
+  return cache[path];
+}
+
+/**
+ * Return the set of lines whose renderings should be cleared (shown as a placeholder) at the current step:
+ * lines whose renderings change between executions, in a function or loop body whose current pass has started
+ * (we're past its top) but which haven't produced their renderings yet in this pass.
+ */
+function getClearedLines(trace, currentPath, currentStepIndex, sourceLines) {
+  const changing = getChangingLines(trace, currentPath);
+  const cleared = new Set();
+  for (let stepIndex = 0; stepIndex <= currentStepIndex; stepIndex++) {
+    const body = getBodyEntered(trace, stepIndex, currentPath, sourceLines);
+    if (body !== null) {
+      for (let lineNumber = body[0]; lineNumber <= body[1]; lineNumber++) {
+        if (changing.has(lineNumber)) {
+          cleared.add(lineNumber);
+        }
+      }
+    }
+    const step = trace.steps[stepIndex];
+    if (step.renderings.length > 0 && getLast(step.stack).path === currentPath) {
+      cleared.delete(getLast(step.stack).line_number);
+    }
+  }
+  return cleared;
+}
+
+/**
+ * Return whether `code` (a line of source) starts a function or a loop.
+ */
+function isBlockHeader(code) {
+  return /^\s*(?:async\s+)?(?:def|for|while)\b/.test(code || "");
+}
+
+/**
+ * Return the range [start, end] of the (1-based) line numbers of the body of the block whose header starts at `headerLineNumber`:
+ * the lines after the header that are indented more than it.
+ */
+function getBlockBody(sourceLines, headerLineNumber) {
+  const indent = (line) => line.length - line.trimStart().length;
+  const headerIndent = indent(sourceLines[headerLineNumber - 1]);
+  let end = headerLineNumber;
+  for (let lineNumber = headerLineNumber + 1; lineNumber <= sourceLines.length; lineNumber++) {
+    const line = sourceLines[lineNumber - 1];
+    if (line.trim() === "") {
+      continue;
+    }
+    if (indent(line) <= headerIndent) {
+      break;
+    }
+    end = lineNumber;
+  }
+  return [headerLineNumber + 1, end];
+}
+
 function isFunctionCall(stack) {
   const item = getLast(stack);
   const match = (item.code || "").match(/^\s*(?:async\s+)?def\s+(\w+)/);
@@ -704,6 +807,7 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
   const lineNumberToEnv = {};
   const lineNumberToFunction = {};  // Which function (location of its def line) set lineNumberToEnv
   const functionAtDepth = [];  // Function (location of its def line) running at each depth of the stack
+  const sourceLines = (trace.files[currentPath] || "").split("\n");
   const lastStepIndex = animateMode ? currentStepIndex : trace.steps.length - 1;
   for (let stepIndex = 0; stepIndex <= lastStepIndex; stepIndex++) {
     const stack = trace.steps[stepIndex].stack;
@@ -719,6 +823,14 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
         }
       }
     }
+    // At the top of a function or loop body, clear the values from the previous pass over the body
+    const body = getBodyEntered(trace, stepIndex, currentPath, sourceLines);
+    if (body !== null) {
+      for (let lineNumber = body[0]; lineNumber <= body[1]; lineNumber++) {
+        delete lineNumberToEnv[lineNumber];
+        delete lineNumberToFunction[lineNumber];
+      }
+    }
     if (item.path === currentPath && Object.keys(trace.steps[stepIndex].env).length > 0) {
       lineNumberToEnv[item.line_number] = trace.steps[stepIndex].env;
       lineNumberToFunction[item.line_number] = functionAtDepth[depth];
@@ -731,6 +843,9 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
   // Apply syntax highlighting
   const highlightedContents = hljs.highlight(fileContents, { language: "python" }).value;
   const lines = highlightedContents.trim().split("\n");
+
+  // Lines whose renderings are cleared because a new pass over their function or loop body has started
+  const clearedLines = getClearedLines(trace, currentPath, currentStepIndex, sourceLines);
 
   // Render the lines.  For each line:
   // - render the line number
@@ -760,7 +875,10 @@ function renderLines({trace, currentPath, currentLineNumber, currentStepIndex, t
 
     // Replace with renderings if it exists
     const renderedItems = [];
-    if (!rawMode && renderings && renderings.length > 0) {
+    if (!rawMode && clearedLines.has(lineNumber)) {
+      // The renderings from the previous pass are stale: show a placeholder (one line of text)
+      renderedItems.push(<span key="placeholder" className="code-container">{line.match(/^(\s*)/)[0]}&nbsp;</span>);
+    } else if (!rawMode && renderings && renderings.length > 0) {
       // Add the indent
       const indent = line.match(/^(\s*)/)[0];
       renderedItems.push(<span key="indent" className="code-container">{indent}</span>);
