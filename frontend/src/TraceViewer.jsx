@@ -25,6 +25,7 @@ function TraceViewer() {
 
   const [error, setError] = useState(null);
   const [trace, setTrace] = useState(null);
+  const [gotoOpen, setGotoOpen] = useState(false);  // Whether the box for going to another trace is open
 
   // Add new state for position and offset
   const [envPosition, setEnvPosition] = useState({ x: 20, y: 20 });
@@ -69,6 +70,9 @@ function TraceViewer() {
       if (event.altKey || event.ctrlKey) {  // Don't capture alt-right (for web page navigation)
         return;
       }
+      if (gotoOpen || event.target instanceof HTMLInputElement) {  // Typing into a text box
+        return;
+      }
 
       if (!event.shiftKey && (event.key === 'ArrowRight' || event.key === 'l')) {
         stepForward({trace, currentStepIndex, lineAnimate, navigate});
@@ -93,8 +97,8 @@ function TraceViewer() {
       } else if (event.key === 'N') {
         toggleShowNotes({showNotes, navigate});
       } else if (event.key === 'g') {
-        // Open the prompt after this keystroke is done, so the "g" doesn't get typed into the prompt
-        setTimeout(() => gotoTrace({tracePath, navigate}), 0);
+        // (Not window.prompt, which browsers suppress when the page isn't the active tab, e.g., when embedded)
+        setGotoOpen(true);
       } else {
         return;
       }
@@ -105,7 +109,7 @@ function TraceViewer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [trace, tracePath, targetStepIndex, targetLineNumber, lineAnimate, rawMode, animateMode, showGlobalEnv, hideLineEnv, showNotes, navigate]);
+  }, [trace, tracePath, targetStepIndex, targetLineNumber, lineAnimate, rawMode, animateMode, showGlobalEnv, hideLineEnv, showNotes, gotoOpen, navigate]);
 
   // Update drag handlers
   const handleMouseDown = (e) => {
@@ -198,6 +202,16 @@ function TraceViewer() {
       onMouseDown={handleMouseDown}
     >
       <div className="lines-panel">{renderedLines}</div>
+      {gotoOpen && (
+        <GotoTraceBox
+          tracePath={tracePath}
+          onSubmit={(newTracePath) => {
+            setGotoOpen(false);
+            updateUrlParams({ trace: newTracePath, source: null, line: null, step: null, lineAnimate: null }, navigate);
+          }}
+          onCancel={() => setGotoOpen(false)}
+        />
+      )}
       <div
         className="env-panel"
         style={{
@@ -426,11 +440,33 @@ function toggleShowNotes({showNotes, navigate}) {
   updateUrlParams({ showNotes: newShowNotes ? "1" : null }, navigate);
 }
 
-function gotoTrace({tracePath, navigate}) {
-  const newTracePath = prompt("Enter trace name or path:", tracePath);
-  if (newTracePath) {
-    updateUrlParams({ trace: newTracePath, source: null, line: null, step: null, lineAnimate: null }, navigate);
-  }
+/**
+ * A box for entering the name or path of another trace (Enter to go there, Escape to cancel).
+ */
+function GotoTraceBox({ tracePath, onSubmit, onCancel }) {
+  const [value, setValue] = useState(tracePath || '');
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      onCancel();
+    } else if (e.key === 'Enter' && value.trim()) {
+      onSubmit(value.trim());
+    }
+    e.stopPropagation();
+  };
+  return (
+    <div className="goto-trace-box">
+      <div>Enter trace name or path:</div>
+      <input
+        type="text"
+        value={value}
+        autoFocus
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={onCancel}
+      />
+    </div>
+  );
 }
 
 /**
@@ -521,13 +557,17 @@ function inSameFunction(stack1, stack2) {
  */
 /**
  * If step `stepIndex` is at the top of a function or loop body in `currentPath` and about to enter the body
- * (for a loop: not when it exits), return the range [start, end] of the line numbers of the body; otherwise null.
- * Each time this happens, a new pass over the body starts.
+ * (for a loop: not when it exits, and only if its header has the @clear directive), return the range [start, end]
+ * of the line numbers of the body; otherwise null.  Each time this happens, a new pass over the body starts.
  */
 function getBodyEntered(trace, stepIndex, currentPath, sourceLines) {
   const stack = trace.steps[stepIndex].stack;
   const item = getLast(stack);
   if (item.path !== currentPath || !isBlockHeader(item.code)) {
+    return null;
+  }
+  // A loop only starts a new pass if its header says so (e.g., "for x in xs:  # @clear x"); a function call always does
+  if (!isFunctionCall(stack) && !/@clear\b/.test(item.code || "")) {
     return null;
   }
   const body = getBlockBody(sourceLines, item.line_number);

@@ -327,3 +327,27 @@ button {
   color: #999;
   vertical-align: top;
 }
+
+.goto-trace-box {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 14px 18px;
+  background: white;
+  border: 1px solid #999;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-family: Arial, sans-serif;
+}
+
+.goto-trace-box input {
+  display: block;
+  width: 420px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
