@@ -40,6 +40,8 @@ const defaultStylesheet = [
 const SELECTED = "#ff8c00";
 const selectionStylesheet = [
   {selector: "node:selected", style: {"underlay-color": SELECTED, "underlay-opacity": 0.6, "underlay-padding": 8, "underlay-shape": "ellipse"}},
+  // Rectangular nodes (class added below) get a rounded rectangle highlight instead of an ellipse
+  {selector: "node.rect-shaped:selected", style: {"underlay-shape": "round-rectangle"}},
   {selector: "edge:selected", style: {"underlay-color": SELECTED, "underlay-opacity": 0.6, "underlay-padding": 6, "z-index": 20}},
 ];
 
@@ -89,6 +91,11 @@ export default function CytoscapeGraph({ data, style }) {
         // Nodes stay where they are (no dragging), and no zooming in or out
         autoungrabify: true,
         userZoomingEnabled: false,
+      });
+      cy.nodes().forEach((node) => {
+        if (/rectangle/.test(node.style("shape"))) {
+          node.addClass("rect-shaped");
+        }
       });
       // Restore what was selected and where we panned to
       const {selected, pan, zoom} = saved.current;
